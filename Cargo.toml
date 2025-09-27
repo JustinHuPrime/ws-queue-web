@@ -1,0 +1,22 @@
+[package]
+name = "ws-queue-web"
+version = "0.1.0"
+authors = ["Justin Hu <justin.hu@alumni.ubc.ca>"]
+edition = "2024"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/JustinHuPrime/ws-queue-web"
+homepage = "https://github.com/JustinHuPrime/ws-queue-web#readme"
+description = "Message queueing functionality for web-sys websockets"
+keywords = ["websocket", "queue"]
+categories = ["wasm", "websocket"]
+rust-version = "1.87.0"
+include = ["src/", "CHANGELOG.md", "LICENSE", "README.md"]
+
+[dependencies]
+wasm-bindgen = "0.2.104"
+web-sys = { version = "0.3.81", features = [
+  "WebSocket",
+  "CloseEvent",
+  "MessageEvent",
+] }
