@@ -10,9 +10,17 @@ use std::{
 };
 
 use wasm_bindgen::prelude::*;
-use web_sys::{CloseEvent, Event, MessageEvent, WebSocket};
+use web_sys::{
+    BinaryType, CloseEvent, Event, MessageEvent, WebSocket,
+    js_sys::{ArrayBuffer, JsString, Uint8Array},
+};
 
 pub type Handler<T> = Option<Box<dyn FnMut(T)>>;
+
+pub enum Message {
+    Text(String),
+    Binary(Box<[u8]>),
+}
 
 struct HandlerCell<T> {
     function: RefCell<Handler<T>>,
@@ -74,13 +82,13 @@ pub struct WebSocketClient {
     _raw_on_message: EventListener,
     _raw_on_error: EventListener,
     _raw_on_close: EventListener,
-    queue: Rc<RefCell<VecDeque<String>>>,
+    queue: Rc<RefCell<VecDeque<Message>>>,
     error: Rc<RefCell<Option<JsValue>>>,
-    on_message: Rc<HandlerCell<String>>,
+    on_message: Rc<HandlerCell<Message>>,
     on_error: Rc<HandlerCell<JsValue>>,
 }
 impl WebSocketClient {
-    pub fn new(url: &str, init_message: Option<String>) -> Result<Self, JsValue> {
+    pub fn new(url: &str, init_message: Option<Message>) -> Result<Self, JsValue> {
         let queue = Rc::new(RefCell::new(VecDeque::new()));
         let error = Rc::new(RefCell::new(None));
 
@@ -88,6 +96,7 @@ impl WebSocketClient {
         let on_error = Rc::new(HandlerCell::new());
 
         let raw_ws = WebSocket::new(url)?;
+        raw_ws.set_binary_type(BinaryType::Arraybuffer);
 
         Ok(Self {
             raw_ws: raw_ws.clone(),
@@ -98,7 +107,11 @@ impl WebSocketClient {
                     let handler = on_error.clone();
                     move |_| {
                         let mut handler = handler.borrow_mut();
-                        if let Err(err) = on_open_raw_ws.send_with_str(&message) {
+                        let send_attempt = match &message {
+                            Message::Text(message) => on_open_raw_ws.send_with_str(message),
+                            Message::Binary(message) => on_open_raw_ws.send_with_u8_array(message),
+                        };
+                        if let Err(err) = send_attempt {
                             if let Some(ref mut handler) = *handler {
                                 handler(err);
                             } else {
@@ -116,12 +129,19 @@ impl WebSocketClient {
                         .dyn_into::<MessageEvent>()
                         .expect("parameter of websocket message callback");
                     let mut handler = handler.borrow_mut();
-                    if let Some(msg) = msg.data().as_string() {
-                        if let Some(ref mut handler) = *handler {
-                            handler(msg);
-                        } else {
-                            on_message_queue.borrow_mut().push_back(msg);
-                        }
+                    let msg = if let Ok(msg) = msg.data().dyn_into::<ArrayBuffer>() {
+                        let array = Uint8Array::new(&msg);
+                        Message::Binary(array.to_vec().into_boxed_slice())
+                    } else if let Ok(msg) = msg.data().dyn_into::<JsString>() {
+                        Message::Text(msg.into())
+                    } else {
+                        // bail - not recognized binary or text message
+                        return;
+                    };
+                    if let Some(ref mut handler) = *handler {
+                        handler(msg);
+                    } else {
+                        on_message_queue.borrow_mut().push_back(msg);
                     }
                 }
             }),
@@ -148,9 +168,9 @@ impl WebSocketClient {
                         Ok(event) if event.was_clean() => {
                             let mut handler = message_handler.borrow_mut();
                             if let Some(ref mut handler) = *handler {
-                                handler(event.reason());
+                                handler(Message::Text(event.reason()));
                             } else {
-                                on_message_queue.borrow_mut().push_back(event.reason());
+                                on_message_queue.borrow_mut().push_back(Message::Text(event.reason()));
                             }
                         }
                         Ok(event) => {
@@ -185,7 +205,7 @@ impl WebSocketClient {
         }
     }
 
-    pub fn set_onmessage(&mut self, new_handler: Option<Box<dyn FnMut(String)>>) {
+    pub fn set_onmessage(&mut self, new_handler: Option<Box<dyn FnMut(Message)>>) {
         if self.on_message.replace(new_handler) {
             while let Some(ref mut handler) = *self.on_message.borrow_mut()
                 && let Some(message) = self.queue.borrow_mut().pop_front()

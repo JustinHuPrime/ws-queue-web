@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased](https://github.com/JustinHuPrime/ws-queue-web/compare/v0.1.0...HEAD)
 
+Added support for binary messages
+
 ## [0.1.0](https://github.com/JustinHuPrime/ws-queue-web/releases/tag/v0.1.0) - 2025-09-27
 
 Added websocket client with message and error queueing
